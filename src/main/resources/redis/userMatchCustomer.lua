@@ -1,13 +1,12 @@
 
-local customreMapKey = KEYS[1]
-local customreOrderKey = KEYS[2]
-local userOrderKey = KEYS[3]
-local customerId = ARGV[1]
-local userKeyPre = ARGV[2]
-local strategy = ARGV[3]
+local userMapKey = KEYS[1]
+local userOrderKey = KEYS[2]
+local customerOrderKey = KEYS[3]
+local userId = ARGV[1]
+local customerMapKeyPre = ARGV[2]
 local customer = {}
 local user = {}
-local allMatchUserId = {}
+local matchCustomerId = ''
 
 local function split(str,reps)
     local resultStrList = {}
@@ -17,97 +16,98 @@ local function split(str,reps)
     return resultStrList
 end
 
-local customerSet = redis.call('ZRANGE', customreOrderKey, 0, -1)
-if customerSet == nil or #customerSet == 0 then
-    return 'offLine1'
+local userDetail = redis.call('HGETALL', userMapKey)
+if userDetail == nil then
+    return 'offLine3'
 end
-local customerInOrder = false
-for k, v in pairs(customerSet) do
-    if v == customerId then
-        customerInOrder = true
-        break
-    end
+for i=1,#userDetail,2 do
+    user[userDetail[i]] = userDetail[i+1]
 end
-if not customerInOrder then
-    return 'offLine2'
+if user.customerId ~= nil and user.customerId ~= '' then
+    return user.customerId
 end
 local userSet = redis.call('ZRANGE', userOrderKey, 0, -1)
 if userSet == nil or #userSet == 0 then
-    return 'noUser'
+    return 'offLine1'
 end
-local customerDetail = redis.call('HGETALL', customreMapKey)
-if customerDetail == nil then
-    return 'offLine3'
+local userInOrder = false
+for k, v in pairs(userSet) do
+    if v == userId then
+        userInOrder = true
+        break
+    end
 end
-for i=1,#customerDetail,2 do
-    customer[customerDetail[i]] = customerDetail[i+1]
+if not userInOrder then
+    return 'offLine2'
+end
+local customerSet = redis.call('ZRANGE', customerOrderKey, 0, -1)
+if customerSet == nil or #customerSet == 0 then
+    return 'noCustomer'
 end
 local num = 1;
-for k,v in pairs(userSet) do
-    local userMap = redis.call('HGETALL', userKeyPre .. v)
-    local userDetail = {}
-    if userMap ~= nil then
-        for i=1,#userMap,2 do
-            userDetail[userMap[i]] = userMap[i+1]
+for k,v in pairs(customerSet) do
+    local customerMap = redis.call('HGETALL', customerMapKeyPre .. v)
+    local customerDetail = {}
+    if customerMap ~= nil then
+        for i=1,#customerMap,2 do
+            customerDetail[customerMap[i]] = customerMap[i+1]
         end
-        if userMap.customerId == nil then
-            user[num] = userDetail
+        if customerDetail.userId == nil or customerDetail.userId == '' then
+            customer[num] = customerDetail
             num = num + 1
         end
     end
 end
-if user == nil or #user == 0 then
-    return 'noUser'
+if customer == nil or #customer == 0 then
+    return 'noCustomer'
 end
-local customerParam = cjson.decode(customer.params)
-for k,v in pairs(user) do
+local userParam = cjson.decode(user.params)
+for k,v in pairs(customer) do
     local score = 0;
-    local userParams = cjson.decode(v.params)
-    if userParams == nil then
-        return "num"
-    end
-
-    for ck, cv in pairs(customerParam) do
-        for uk, uv in pairs(userParams) do
-            if cv.key == uv.key then
-                if cv.type == 'EQUAL' and cv.value == uv.value then
-                    score = score + 1
-                elseif cv.type == 'CONTAIN' then
-                    local userParamList = split(uv.value, ",")
-                    for k,v in pairs(userParamList) do
-                        if v == cv.value then
+    local customerParams = cjson.decode(v.params)
+    if customerParams ~= nil then
+        for ck, cv in pairs(customerParams) do
+            for uk,uv in pairs(userParam) do
+                if cv.type == uv.type and cv.value ~= nil and uv.value ~= nil and cv.value ~= '' and uv.value ~= '' then
+                    if uv.type == 'EQUAL' and cv.value == uv.value then
+                        score = score + 1
+                    elseif uv.type == 'CONTAIN' then
+                        local userParamList = split(uv.value, ",")
+                        for k,v in pairs(userParamList) do
+                            if v == cv.value then
+                                score = score + 1
+                            end
+                        end
+                    elseif uv.type == 'COMPARE' then
+                        local userParamList = split(uv.value, ",")
+                        local customerParamList = split(cv.value, ",")
+                        local userMin = tonumber(userParamList[1])
+                        local userMax = tonumber(userParamList[2])
+                        local customerMin = tonumber(customerParamList[1])
+                        local customerMax = customerMin
+                        if #customerParamList == 2 then
+                            customerMax = tonumber(customerParamList[2])
+                        end
+                        if customerMin >= userMin and customerMax <= userMax then
                             score = score + 1
                         end
-                    end
-                elseif cv.type == 'COMPARE' then
-                    local userParamList = split(uv.value, ",")
-                    local min = userParamList[1]
-                    local max = userParamList[1]
-                    if #userParamList == 2 then
-                        max = userParamList[2]
-                    end
-                    if cv.value >= min then
-                        score = score + 1
-                    end
-                    if cv.value <= max then
-                        score = score + 1
                     end
                 end
             end
         end
     end
     if score > 0 then
-        table.insert(allMatchUserId,1,v.id)
+        matchCustomerId = v.id
+        break
     end
 end
 
-if #allMatchUserId == 0 then
-    return 'noMatchUser'
+if matchCustomerId == nil or matchCustomerId == '' then
+    return 'noMatchCustomer'
 end
 
-local matchUserId = allMatchUserId[math.random(#allMatchUserId)]
-redis.call('HSET',userKeyPre..matchUserId,'customerId',customerId)
-redis.call('HSET',customreMapKey,'userId',matchUserId)
-redis.call('zrem',customreOrderKey,customerId)
+redis.call('HSET',userMapKey,'customerId',matchCustomerId)
+redis.call('HSET',customerMapKeyPre..matchCustomerId,'userId',userId)
+redis.call('zrem',customerOrderKey,matchCustomerId)
 
-return matchUserId
+return matchCustomerId

@@ -31,7 +31,7 @@ public class RedisService {
     private final String customer_map = key_pre + "customer:map:";
     private final String user_order = key_pre + "user:order";
     private final String user_map = key_pre + "user:map:";
-    private final List<String> matchResult = Arrays.asList("offLine","noUser","noMatchUser");
+    private final List<String> matchResult = Arrays.asList("offLine","noUser","noMatchUser","noMatchCustomer","noCustomer");
 
     public UserEntity userOnLine(UserEntity userEntity){
         userEntity.setId(UUID.randomUUID().toString());
@@ -81,14 +81,24 @@ public class RedisService {
         key.add(customer_order);
         key.add(user_order);
         String result = (String) redisTemplate.execute(customerMatchUserScript, key, customerId,user_map,"1");
+        System.out.println(result);
         if (matchResult.contains(result)) {
             return null;
         }
-        return getUserDetail(result+"");
+        return getUserDetail(result);
     }
 
     public CustomerEntity userMatchCustomer(String userId) {
-        return null;
+        List<String> key = new ArrayList<>();
+        key.add(user_map+userId);
+        key.add(user_order);
+        key.add(customer_order);
+        String result = (String) redisTemplate.execute(userMatchCustomerScript, key, userId,customer_map);
+        System.out.println(result);
+        if (matchResult.contains(result)) {
+            return null;
+        }
+        return getCustomerDetail(result);
     }
 
     public String removeAll() {
