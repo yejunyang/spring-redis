@@ -18,6 +18,11 @@ public class UserEntity implements Serializable {
     private String name;
     private String customerId;
     private List<ParamEntity> params;
+    private String status;
+
+    public UserEntity(){
+
+    }
 
     public UserEntity(String id, String name, List<ParamEntity> params) {
         this.id = id;
@@ -64,13 +69,23 @@ public class UserEntity implements Serializable {
         this.customerId = customerId;
     }
 
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
     public Map<String , String> toMap(){
         Map<String , String> map = new HashMap<>(4);
         map.put("id",this.id);
         map.put("name",this.name);
+        map.put("status",this.status);
         map.put("customerId",this.customerId);
         map.put("params", JSON.toJSONString(this.params));
         return map;
     }
+
 
 }

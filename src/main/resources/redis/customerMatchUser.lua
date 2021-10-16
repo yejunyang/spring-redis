@@ -1,13 +1,12 @@
 
 local customreMapKey = KEYS[1]
 local customerOrderKey = KEYS[2]
-local userOrderKey = KEYS[3]
+local userKey = KEYS[3]
 local customerId = ARGV[1]
-local userKeyPre = ARGV[2]
-local strategy = ARGV[3]
 local customer = {}
 local user = {}
-local allMatchUserId = {}
+local allMatchUser = {}
+local result = {}
 
 local function split(str,reps)
     local resultStrList = {}
@@ -17,19 +16,30 @@ local function split(str,reps)
     return resultStrList
 end
 
-local customerDetail = redis.call('HGETALL', customreMapKey)
-if customerDetail == nil then
-    return 'offLine3'
+local customerString = redis.call('HGET', customreMapKey,customerId)
+if customerString == nil or not customerString then
+    result.type = 'ALREADY_OFFLINE'
+    return cjson.encode(result)
 end
-for i=1,#customerDetail,2 do
-    customer[customerDetail[i]] = customerDetail[i+1]
+customer = cjson.decode(customerString)
+
+if customer == nil then
+    result.type = 'ALREADY_OFFLINE'
+    return cjson.encode(result)
 end
+
 if customer.userId ~= nil and customer.userId ~= '' then
-    return customer.userId
+    result.type = 'SUCCESSFUL'
+    local customerString = redis.call('HGET', userKey,customer.userId)
+    if customerString ~= nil and customerString then
+        result.data = cjson.decode(customerString)
+    end
+    return cjson.encode(result)
 end
 local customerSet = redis.call('ZRANGE', customerOrderKey, 0, -1)
 if customerSet == nil or #customerSet == 0 then
-    return 'offLine1'
+    result.type = 'ALREADY_OFFLINE'
+    return cjson.encode(result)
 end
 local customerInOrder = false
 for k, v in pairs(customerSet) do
@@ -39,35 +49,31 @@ for k, v in pairs(customerSet) do
     end
 end
 if not customerInOrder then
-    return 'offLine2'
-end
-local userSet = redis.call('ZRANGE', userOrderKey, 0, -1)
-if userSet == nil or #userSet == 0 then
-    return 'noUser'
+    result.type = 'ALREADY_OFFLINE'
+    return cjson.encode(result)
 end
 local num = 1;
-for k,v in pairs(userSet) do
-    local userMap = redis.call('HGETALL', userKeyPre .. v)
-    local userDetail = {}
-    if userMap ~= nil then
-        for i=1,#userMap,2 do
-            userDetail[userMap[i]] = userMap[i+1]
-        end
-        if userDetail.customerId == nil or userDetail.customerId == '' then
+local userMap = redis.call('HGETALL', userKey)
+if userMap ~= nil then
+    for i=1,#userMap,2 do
+        local userDetail = cjson.decode(userMap[i+1])
+        if (userDetail.customerId == nil or userDetail.customerId == '') and string.upper(userDetail.status) == 'IDLE' then
             user[num] = userDetail
             num = num + 1
         end
     end
 end
 if user == nil or #user == 0 then
-    return 'noUser'
+    result.type = 'NO_USER'
+    return cjson.encode(result)
 end
-local customerParam = cjson.decode(customer.params)
+local customerParam = customer.params
 for k,v in pairs(user) do
     local score = 0;
-    local userParams = cjson.decode(v.params)
+    local userParams = v.params
     if userParams == nil then
-        return "customerParamError"
+        result.type = 'CUSTOMER_PARAM_ERROR'
+        return cjson.encode(result)
     end
 
     for ck, cv in pairs(customerParam) do
@@ -100,17 +106,24 @@ for k,v in pairs(user) do
         end
     end
     if score > 0 then
-        table.insert(allMatchUserId,1,v.id)
+        table.insert(allMatchUser,1,v)
     end
 end
 
-if #allMatchUserId == 0 then
-    return 'noMatchUser'
+if #allMatchUser == 0 then
+    result.type = 'NO_MATCH_USER'
+    return cjson.encode(result)
 end
 
-local matchUserId = allMatchUserId[math.random(#allMatchUserId)]
-redis.call('HSET',userKeyPre..matchUserId,'customerId',customerId)
-redis.call('HSET',customreMapKey,'userId',matchUserId)
+local matchUser = allMatchUser[math.random(#allMatchUser)]
+matchUser.status = 'DOING'
+matchUser.customerId = customerId
+customer.userId = matchUser.id
+
+redis.call('HSET',userKey,matchUser.id,cjson.encode(matchUser))
+redis.call('HSET',customreMapKey,customerId,cjson.encode(customer))
 redis.call('zrem',customerOrderKey,customerId)
 
-return matchUserId
+result.type = 'SUCCESSFUL'
+result.data = matchUser
+return cjson.encode(result)

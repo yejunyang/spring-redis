@@ -1,6 +1,11 @@
 package com.yejy.springredis.redis.service;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.TypeReference;
 import com.yejy.springredis.redis.entity.CustomerEntity;
+import com.yejy.springredis.redis.entity.RedisEntity;
+import com.yejy.springredis.redis.entity.StatusEnum;
 import com.yejy.springredis.redis.entity.UserEntity;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -8,6 +13,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -26,92 +32,108 @@ public class RedisService {
     @Autowired
     @Qualifier("userMatchCustomerScript")
     private DefaultRedisScript userMatchCustomerScript;
+    @Autowired
+    @Qualifier("changeUserStatusScript")
+    private DefaultRedisScript changeUserStatusScript;
+    @Autowired
+    @Qualifier("cancelForCustomerScript")
+    private DefaultRedisScript cancelForCustomerScript;
+
     private final String key_pre = "{my_key_pre}_";
     private final String customer_order = key_pre + "customer:order";
-    private final String customer_map = key_pre + "customer:map:";
-    private final String user_order = key_pre + "user:order";
-    private final String user_map = key_pre + "user:map:";
+    private final String customer_map = key_pre + "customer:map";
+    private final String user_map = key_pre + "user:map";
     private final List<String> matchResult = Arrays.asList("offLine","noUser","noMatchUser","noMatchCustomer","noCustomer");
 
     public UserEntity userOnLine(UserEntity userEntity){
         userEntity.setId(UUID.randomUUID().toString());
-        redisTemplate.opsForHash().putAll(user_map+userEntity.getId(),userEntity.toMap());
-        redisTemplate.expire(user_map+userEntity.getId(),1, TimeUnit.HOURS);
-        redisTemplate.opsForZSet().add(user_order,userEntity.getId(),System.currentTimeMillis());
-        redisTemplate.expire(user_order,1, TimeUnit.HOURS);
+        userEntity.setStatus(StatusEnum.IDLE.getCode());
+        redisTemplate.opsForHash().put(user_map,userEntity.getId(), JSON.toJSONString(userEntity));
+        redisTemplate.expire(user_map,1, TimeUnit.HOURS);
         return userEntity;
     }
 
-    public Set<String> getAllUser(){
-        return redisTemplate.opsForZSet().range(user_order,0,-1);
+    public Map<Object, Object> getAllUser(){
+        return redisTemplate.opsForHash().entries(user_map);
     }
 
     public UserEntity getUserDetail(String id){
-        Map entries = redisTemplate.opsForHash().entries(user_map + id);
-        if (entries == null || entries.size() == 0) {
-            return null;
+        String userStr = (String) redisTemplate.opsForHash().get(user_map, id);
+        if (StringUtils.hasText(userStr)) {
+            return JSONObject.parseObject(userStr,UserEntity.class);
         }
-        return new UserEntity(entries);
+        return null;
     }
 
     public CustomerEntity customerOnline(CustomerEntity customerEntity){
         customerEntity.setId(UUID.randomUUID().toString());
-        redisTemplate.opsForHash().putAll(customer_map+customerEntity.getId(),customerEntity.toMap());
-        redisTemplate.expire(customer_map+customerEntity.getId(),1, TimeUnit.HOURS);
+        redisTemplate.opsForHash().put(customer_map,customerEntity.getId(),JSON.toJSONString(customerEntity));
+        redisTemplate.expire(customer_map,1, TimeUnit.HOURS);
         redisTemplate.opsForZSet().add(customer_order,customerEntity.getId(),System.currentTimeMillis());
         redisTemplate.expire(customer_order,1, TimeUnit.HOURS);
         return customerEntity;
     }
 
-    public Set<String> getAllCustomer(){
-        return redisTemplate.opsForZSet().range(customer_order,0,-1);
+    public Map<Object, Object> getAllCustomer(){
+        return redisTemplate.opsForHash().entries(customer_map);
     }
 
     public CustomerEntity getCustomerDetail(String id){
-        Map entries = redisTemplate.opsForHash().entries(customer_map + id);
-        if (entries == null || entries.size() == 0) {
-            return null;
+        String customerStr = (String) redisTemplate.opsForHash().get(customer_map, id);
+        if (StringUtils.hasText(customerStr)) {
+            return JSONObject.parseObject(customerStr,CustomerEntity.class);
         }
-        return new CustomerEntity(entries);
+        return null;
     }
 
-    public UserEntity customerMatchUser(String customerId) {
+    public RedisEntity<UserEntity> customerMatchUser(String customerId) {
         List<String> key = new ArrayList<>();
-        key.add(customer_map+customerId);
+        key.add(customer_map);
         key.add(customer_order);
-        key.add(user_order);
-        String result = (String) redisTemplate.execute(customerMatchUserScript, key, customerId,user_map,"1");
-        System.out.println(result);
-        if (matchResult.contains(result)) {
-            return null;
-        }
-        return getUserDetail(result);
+        key.add(user_map);
+        String result = (String) redisTemplate.execute(customerMatchUserScript, key, customerId);
+        return JSON.parseObject(result,new TypeReference<RedisEntity<UserEntity>>(){});
     }
 
-    public CustomerEntity userMatchCustomer(String userId) {
+    public RedisEntity<CustomerEntity> userMatchCustomer(String userId) {
         List<String> key = new ArrayList<>();
-        key.add(user_map+userId);
-        key.add(user_order);
+        key.add(user_map);
+        key.add(customer_map);
         key.add(customer_order);
-        String result = (String) redisTemplate.execute(userMatchCustomerScript, key, userId,customer_map);
-        System.out.println(result);
-        if (matchResult.contains(result)) {
-            return null;
-        }
-        return getCustomerDetail(result);
+        String result = (String) redisTemplate.execute(userMatchCustomerScript, key, userId);
+        return JSON.parseObject(result,new TypeReference<RedisEntity<CustomerEntity>>(){});
     }
 
     public String removeAll() {
-        Set<String> allCustomer = getAllCustomer();
-        if (!CollectionUtils.isEmpty(allCustomer)){
-            allCustomer.forEach(id -> redisTemplate.delete(customer_map+id));
-        }
-        Set<String> allUser = getAllUser();
-        if (!CollectionUtils.isEmpty(allUser)){
-            allUser.forEach(id -> redisTemplate.delete(user_map+id));
-        }
         redisTemplate.delete(customer_order);
-        redisTemplate.delete(user_order);
+        redisTemplate.delete(customer_map);
+        redisTemplate.delete(user_map);
         return "success";
+    }
+
+    public RedisEntity<UserEntity> changeUserStatus(UserEntity userEntity){
+        List<String> key = new ArrayList<>();
+        key.add(user_map);
+        String result = (String) redisTemplate.execute(changeUserStatusScript, key,userEntity.getStatus(), userEntity.getId());
+        return JSON.parseObject(result,new TypeReference<RedisEntity<UserEntity>>(){});
+    }
+
+    public RedisEntity<CustomerEntity> cancelForCustomer(CustomerEntity customerEntity){
+        List<String> key = new ArrayList<>();
+        key.add(customer_map);
+        key.add(customer_order);
+        String result = (String) redisTemplate.execute(cancelForCustomerScript, key, customerEntity.getId());
+        return JSON.parseObject(result,new TypeReference<RedisEntity<CustomerEntity>>(){});
+    }
+
+    public UserEntity submit(UserEntity userEntity){
+        UserEntity userDetail = getUserDetail(userEntity.getId());
+        String customerId = userDetail.getCustomerId();
+        userDetail.setStatus(StatusEnum.SUBMIT.getCode());
+        userDetail.setCustomerId(null);
+        redisTemplate.opsForHash().put(user_map,userEntity.getId(), JSON.toJSONString(userDetail));
+        redisTemplate.expire(user_map,1, TimeUnit.HOURS);
+        redisTemplate.opsForHash().delete(customer_map,customerId);
+        return userDetail;
     }
 }

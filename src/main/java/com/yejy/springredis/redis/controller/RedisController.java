@@ -1,6 +1,7 @@
 package com.yejy.springredis.redis.controller;
 
 import com.yejy.springredis.redis.entity.CustomerEntity;
+import com.yejy.springredis.redis.entity.RedisEntity;
 import com.yejy.springredis.redis.entity.UserEntity;
 import com.yejy.springredis.redis.service.RedisService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Set;
+import java.util.Map;
 
 /**
  * @author yejunyang2012@163.com
@@ -28,7 +29,7 @@ public class RedisController {
     }
 
     @RequestMapping(value = "getAllUser",method = RequestMethod.GET)
-    public Set<String> getAllUser(){
+    public Map<Object, Object> getAllUser(){
         return redisService.getAllUser();
     }
 
@@ -43,7 +44,7 @@ public class RedisController {
     }
 
     @RequestMapping(value = "getAllCustomer",method = RequestMethod.GET)
-    public Set<String> getAllCustomer(){
+    public Map<Object, Object> getAllCustomer(){
         return redisService.getAllCustomer();
     }
 
@@ -53,17 +54,32 @@ public class RedisController {
     }
 
     @RequestMapping(value = "customerMatchUser",method = RequestMethod.GET)
-    public UserEntity customerMatchUser(String customerId){
+    public RedisEntity<UserEntity> customerMatchUser(String customerId){
         return redisService.customerMatchUser(customerId);
     }
 
     @RequestMapping(value = "userMatchCustomer",method = RequestMethod.GET)
-    public CustomerEntity userMatchCustomer(String userId){
+    public RedisEntity<CustomerEntity> userMatchCustomer(String userId){
         return redisService.userMatchCustomer(userId);
     }
 
     @RequestMapping(value = "removeAll",method = RequestMethod.GET)
     public String removeAll(){
         return redisService.removeAll();
+    }
+
+    @RequestMapping(value = "changeUserStatus",method = RequestMethod.GET)
+    public RedisEntity<UserEntity> changeUserStatus(UserEntity userEntity){
+        return redisService.changeUserStatus(userEntity);
+    }
+
+    @RequestMapping(value = "cancelForCustomer",method = RequestMethod.GET)
+    public RedisEntity<CustomerEntity> cancelForCustomer(CustomerEntity customerEntity){
+        return redisService.cancelForCustomer(customerEntity);
+    }
+
+    @RequestMapping(value = "submit",method = RequestMethod.GET)
+    public UserEntity submit(UserEntity userEntity){
+        return redisService.submit(userEntity);
     }
 }
