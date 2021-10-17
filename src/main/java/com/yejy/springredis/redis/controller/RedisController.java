@@ -82,4 +82,14 @@ public class RedisController {
     public UserEntity submit(UserEntity userEntity){
         return redisService.submit(userEntity);
     }
+
+    @RequestMapping(value = "getCustomerOrderNum",method = RequestMethod.GET)
+    public int getCustomerOrderNum(CustomerEntity customerEntity){
+        return redisService.getCustomerOrderNum(customerEntity);
+    }
+
+    @RequestMapping(value = "getOrderNumForUser",method = RequestMethod.GET)
+    public int getOrderNumForUser(UserEntity userEntity){
+        return redisService.getOrderNumForUser(userEntity);
+    }
 }

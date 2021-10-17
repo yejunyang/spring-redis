@@ -3,16 +3,12 @@ package com.yejy.springredis.redis.service;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
-import com.yejy.springredis.redis.entity.CustomerEntity;
-import com.yejy.springredis.redis.entity.RedisEntity;
-import com.yejy.springredis.redis.entity.StatusEnum;
-import com.yejy.springredis.redis.entity.UserEntity;
+import com.yejy.springredis.redis.entity.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.*;
@@ -38,6 +34,8 @@ public class RedisService {
     @Autowired
     @Qualifier("cancelForCustomerScript")
     private DefaultRedisScript cancelForCustomerScript;
+    @Autowired
+    private OrderService orderService;
 
     private final String key_pre = "{my_key_pre}_";
     private final String customer_order = key_pre + "customer:order";
@@ -128,6 +126,9 @@ public class RedisService {
 
     public UserEntity submit(UserEntity userEntity){
         UserEntity userDetail = getUserDetail(userEntity.getId());
+        if (!StatusEnum.DOING.getCode().equals(userDetail.getStatus())){
+            return null;
+        }
         String customerId = userDetail.getCustomerId();
         userDetail.setStatus(StatusEnum.SUBMIT.getCode());
         userDetail.setCustomerId(null);
@@ -135,5 +136,34 @@ public class RedisService {
         redisTemplate.expire(user_map,1, TimeUnit.HOURS);
         redisTemplate.opsForHash().delete(customer_map,customerId);
         return userDetail;
+    }
+
+    public int getCustomerOrderNum(CustomerEntity customerEntity){
+        OrderEntity orderEntity = getAllUserAndAllCustomer();
+        orderEntity.setCustomerOrder(redisTemplate.opsForZSet().range(customer_order, 0, -1));
+        orderEntity.setCurrentId(customerEntity.getId());
+        return orderService.numBeforeForCustomer(orderEntity);
+    }
+
+    public int getOrderNumForUser(UserEntity userEntity){
+        OrderEntity orderEntity = getAllUserAndAllCustomer();
+        orderEntity.setCurrentId(userEntity.getId());
+        return orderService.getOrderForUser(orderEntity);
+    }
+
+    private OrderEntity getAllUserAndAllCustomer(){
+        OrderEntity orderEntity = new OrderEntity();
+
+        List<CustomerEntity> allCustomers = new ArrayList<>();
+        Map<Object, Object> customersMap = redisTemplate.opsForHash().entries(customer_map);
+        customersMap.forEach((k,v) -> allCustomers.add(JSON.parseObject((String)v,CustomerEntity.class)));
+        orderEntity.setCustomers(allCustomers);
+
+        List<UserEntity> allUsers = new ArrayList<>();
+        Map<Object, Object> usersMap = redisTemplate.opsForHash().entries(user_map);
+        usersMap.forEach((k,v) -> allUsers.add(JSON.parseObject((String)v,UserEntity.class)));
+        orderEntity.setUsers(allUsers);
+
+        return orderEntity;
     }
 }

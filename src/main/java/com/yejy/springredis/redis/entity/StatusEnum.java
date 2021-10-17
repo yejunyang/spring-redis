@@ -12,7 +12,7 @@ public enum StatusEnum {
     /**
      * 忙
      */
-    DONG("DONG","忙"),
+    DOING("DOING","忙"),
     /**
      * 提交
      */

@@ -47,6 +47,7 @@ end
 local userParam = user.params
 
 for co,vo in pairs(customerSet) do
+    local isMatched = false
     for i=1,#allCustomerMap,2 do
         if allCustomerMap[i] == vo then
             local score = 0;
@@ -84,10 +85,14 @@ for co,vo in pairs(customerSet) do
                 end
             end
             if score > 0 then
-                customer = customerParams
+                customer = customerDetail
+                isMatched = true
                 break
             end
         end
+    end
+    if isMatched then
+        break
     end
 end
 
